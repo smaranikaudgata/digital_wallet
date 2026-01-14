@@ -56,7 +56,7 @@ def deposit_money(user_id: str, amount: int, currency: str):
         return {
             "message": "Deposit successful", 
             "new_balance_in_minor_units": wallet.balance,
-            "display_balance": wallet.balance / 100  
+            "display_balance": f"{wallet.balance / 100:.2f}"
         }
     except Exception as e:
         db.rollback()
@@ -91,5 +91,52 @@ def withdraw_money(user_id: str, amount: int, currency: str):
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()
+
+@app.post("/transfer")
+def transfer_money(sender_id: str, receiver_id: str, amount: int, currency: str):
+    db = SessionLocal()
+    try:
+        sender = db.query(Wallet).filter(Wallet.user_id == sender_id, Wallet.currency == currency).first()
+        receiver = db.query(Wallet).filter(Wallet.user_id == receiver_id, Wallet.currency == currency).first()
+
+        # Safety check
+        if not sender or sender.balance < amount:
+            raise HTTPException(status_code=400, detail="Insufficient funds in sender account")
+        if not receiver:
+            raise HTTPException(status_code=404, detail="Receiver wallet not found")
+
+        sender.balance -= amount
+        receiver.balance += amount
+
+        db.commit()
+        return {"message": "Transfer successful", "amount": amount}
+    
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()
+
+@app.get("/balance/{user_id}")
+def get_balance(user_id: str, currency: str):
+    db = SessionLocal()
+    try:
+        wallet = db.query(Wallet).filter(
+            Wallet.user_id == user_id, 
+            Wallet.currency == currency
+        ).first()
+
+        # Safety check
+        if not wallet:
+            raise HTTPException(status_code=404, detail="Wallet not found or is empty")
+
+        return {
+            "user_id": user_id, 
+            "balance": wallet.balance, 
+            "currency": currency,
+            "display_balance": f"{wallet.balance / 100:.2f}"
+        }
     finally:
         db.close()
