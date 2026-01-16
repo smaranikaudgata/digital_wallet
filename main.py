@@ -317,20 +317,34 @@ def transfer_money(sender_id: str, receiver_id: str, amount: int, transaction_cu
 def get_balance(user_id: str, currency: str):
     db = SessionLocal()
     try:
-        wallet = db.query(Wallet).filter(
+        wallets = db.query(Wallet).filter(
             Wallet.user_id == user_id, 
-            Wallet.currency == currency
-        ).first()
+        ).all()
 
         # Safety check
-        if not wallet:
+        if not wallets:
             raise HTTPException(status_code=404, detail="Wallet not found or is empty")
+        
+        # logic for total balance independent of currency it was deposited or withdrawn in
+        total_balance = 0
+        for wallet in wallets:
+            if wallet.currency == currency:
+                contribution = wallet.balance
+                rate = 1.0
+            else:
+                rate = get_live_rate(wallet.currency, currency)
+                contribution = int(round(rate * wallet.balance))
+            
+            total_balance+=contribution
 
         return {
             "user_id": user_id, 
-            "balance": f"{wallet.balance / 100:.2f}", 
+            "balance": f"{total_balance / 100:.2f}", 
             "currency": currency
         }
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
     
     finally:
         db.close()
