@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-from sqlalchemy import Column, Integer, String, BigInteger, DateTime
+from sqlalchemy import Column, Integer, String, BigInteger, DateTime, Boolean
 from datetime import datetime, timezone 
 from sqlalchemy.ext.declarative import declarative_base
 from fastapi import HTTPException
@@ -24,6 +24,7 @@ class Wallet(Base):
     user_id = Column(String)
     currency = Column(String)
     balance = Column(BigInteger, default=0)
+    is_active = Column(Boolean, default=True)
 
 class Transaction(Base):
     __tablename__ = "transactions"
@@ -85,6 +86,9 @@ def deposit_money(user_id: str, amount: int, currency: str):
             Wallet.currency == currency
         ).first()
 
+        if wallet and not wallet.is_active:
+             raise HTTPException(status_code=400, detail="Wallet is inactive. Cannot deposit.")
+
         if not wallet:
             # Storing the amount as a whole number (cents/paise)
             wallet = Wallet(user_id=user_id, currency=currency, balance=amount)
@@ -121,6 +125,9 @@ def withdraw_money(user_id: str, amount: int, currency: str):
             Wallet.user_id == user_id, 
             Wallet.currency == currency
         ).first()
+
+        if wallet and not wallet.is_active:
+             raise HTTPException(status_code=400, detail="Wallet is inactive. Cannot withdraw.")
 
         # Safety check
         if not wallet:
@@ -237,6 +244,9 @@ def transfer_money(sender_id: str, receiver_id: str, amount: int, transaction_cu
     try:
         # SENDER LOGIC try to find the exact currency first
         s_wallet = db.query(Wallet).filter(Wallet.user_id == sender_id, Wallet.currency == transaction_currency).first()
+
+        if s_wallet and not s_wallet.is_active:
+             raise HTTPException(status_code=400, detail="Sender account is inactive")
         
         actual_sender_wallet = None
         deducted_amount = amount
@@ -259,6 +269,9 @@ def transfer_money(sender_id: str, receiver_id: str, amount: int, transaction_cu
 
         # RECEIVER LOGIC try to find receiver's wallet in transaction currency
         r_wallet = db.query(Wallet).filter(Wallet.user_id == receiver_id, Wallet.currency == transaction_currency).first()
+        
+        if r_wallet and not r_wallet.is_active:
+             raise HTTPException(status_code=400, detail="Receiver account is inactive")
         
         receive_amount = amount
         final_receiver_wallet = r_wallet
@@ -355,14 +368,29 @@ def get_history(user_id:str):
     try:
         history = db.query(Transaction).filter(Transaction.user_id == user_id).order_by(Transaction.timestamp.desc()).all()
         if not history:
-            raise HTTPException(
-                status_code=404, 
-                detail="No transactions found or user doesn't exist"
-            )
+            raise HTTPException(status_code=404, detail="No transactions found or user doesn't exist")
         return history
     
     except Exception as e:
         raise HTTPException(status_code=500, detail="Could not retrieve transaction history. Please try again later.")
     
+    finally:
+        db.close()
+
+@app.put("/closeAcc/{user_id}")
+def closeAcc(user_id: str):
+    db = SessionLocal()
+    try:
+        wallets = db.query(Wallet).filter(Wallet.user_id == user_id).all()
+        if not wallets:
+            raise HTTPException(status_code=404, detail="User not found")
+        for wallet in wallets:
+            wallet.is_active = False
+
+        db.commit()
+        return {"message":f"Account for {user_id} closed. Wallets deactivated."}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
     finally:
         db.close()
