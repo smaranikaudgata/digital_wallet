@@ -382,6 +382,7 @@ def closeAcc(user_id: str):
     db = SessionLocal()
     try:
         wallets = db.query(Wallet).filter(Wallet.user_id == user_id).all()
+
         if not wallets:
             raise HTTPException(status_code=404, detail="User not found")
         for wallet in wallets:
@@ -389,8 +390,31 @@ def closeAcc(user_id: str):
 
         db.commit()
         return {"message":f"Account for {user_id} closed. Wallets deactivated."}
+    
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
+    
+    finally:
+        db.close()
+
+@app.put("/reactivateAcc/{user_id}")
+def reactivateAcc(user_id: str):
+    db = SessionLocal()
+    try:
+        wallets = db.query(Wallet).filter(Wallet.user_id == user_id).all()
+
+        if not wallets:
+            raise HTTPException(status_code=404, detail="User not found")
+        for wallet in wallets:
+            wallet.is_active = True
+
+        db.commit()
+        return {"message":f"Account for {user_id} reactivated successfully. All wallets are now active."}
+    
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    
     finally:
         db.close()
